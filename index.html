@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#ffffff">
+<title>Tic-Tac-Toe</title>
+<script src="https://www.youtube.com/game_api/v1"></script>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif}
+body{display:flex;align-items:center;justify-content:center}
+button{font:inherit;color:inherit;background:#fff;border:2px solid #111;cursor:pointer;touch-action:manipulation}
+button:focus-visible{outline:3px solid #111;outline-offset:3px}
+#app{width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:clamp(12px,3vw,32px)}
+.screen{width:min(94vw,720px);max-height:96vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(14px,2.5vh,24px);text-align:center}
+.hidden{display:none!important}
+h1{margin:0;font-size:clamp(32px,7vw,58px);line-height:1;font-weight:900;letter-spacing:-2px}
+.subtitle{margin:0;font-size:clamp(15px,3vw,20px);color:#555}
+.menu{width:min(92vw,420px);display:grid;gap:12px}
+.menu button{min-height:58px;border-radius:14px;font-weight:800;font-size:18px}
+.menu button.primary{background:#111;color:#fff}
+.small{font-size:13px;color:#666}
+.topbar{width:min(92vw,520px);display:flex;align-items:center;justify-content:space-between;gap:10px}
+.topbar button{border:0;padding:8px 0;font-weight:800;background:transparent}
+.status{font-weight:900;font-size:clamp(18px,4vw,25px);min-height:30px}
+.board{width:min(86vw,520px,58vh);aspect-ratio:1;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);border:4px solid #111;background:#111;gap:4px}
+.cell{border:0;border-radius:0;padding:0;display:flex;align-items:center;justify-content:center;min-width:0;min-height:0;position:relative;overflow:hidden}
+.cell:disabled{opacity:1;cursor:default}
+.mark{font-size:clamp(54px,14vw,104px);font-weight:900;line-height:1;display:block;transform:translateZ(0);text-align:center;width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+.mark.o{font-size:clamp(58px,14vw,108px)}
+.controls{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+.controls button{border-radius:12px;padding:11px 18px;font-weight:800}
+.result{font-size:clamp(24px,6vw,38px);font-weight:900;min-height:44px}
+.stats{display:flex;gap:18px;justify-content:center;font-weight:800;font-size:14px}
+#pauseOverlay{position:fixed;inset:0;background:rgba(255,255,255,.96);display:flex;align-items:center;justify-content:center;z-index:10}
+.pauseBox{text-align:center;display:grid;gap:14px}.pauseBox h2{margin:0;font-size:34px}.pauseBox button{padding:13px 26px;border-radius:12px;font-weight:800}
+@media (max-height:520px) and (orientation:landscape){.screen{gap:8px}.board{width:min(55vh,60vw,420px)}.topbar{width:min(70vw,520px)}.status{font-size:18px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <section id="home" class="screen">
+    <h1>TIC-TAC-TOE</h1>
+    <p class="subtitle">Classic black &amp; white</p>
+    <div class="menu">
+      <button class="primary" data-mode="2p">2 Players</button>
+      <button data-mode="easy">1 Player · Easy</button>
+      <button data-mode="medium">1 Player · Medium</button>
+      <button data-mode="hard">1 Player · Hard</button>
+    </div>
+    <div class="stats"><span>Wins: <b id="wins">0</b></span><span>Draws: <b id="draws">0</b></span><span>Losses: <b id="losses">0</b></span></div>
+    <p class="small">X always starts · Tap or click a square</p>
+  </section>
+  <section id="game" class="screen hidden">
+    <div class="topbar"><button id="backBtn" aria-label="Back to menu">← Menu</button><strong id="modeLabel">2 Players</strong><span aria-hidden="true"> </span></div>
+    <div id="status" class="status">X's turn</div>
+    <div id="board" class="board" role="grid" aria-label="Tic-Tac-Toe board"></div>
+    <div id="result" class="result" aria-live="polite"></div>
+    <div class="controls"><button id="newRound">New Round</button></div>
+  </section>
+</div>
+<div id="pauseOverlay" class="hidden"><div class="pauseBox"><h2>Paused</h2><button id="resumeBtn">Resume</button></div></div>
+<script>
+'use strict';
+(function(){
+  const home=document.getElementById('home'), game=document.getElementById('game');
+  const boardEl=document.getElementById('board'), statusEl=document.getElementById('status'), resultEl=document.getElementById('result');
+  const modeLabel=document.getElementById('modeLabel'), pauseOverlay=document.getElementById('pauseOverlay');
+  const winsEl=document.getElementById('wins'), drawsEl=document.getElementById('draws'), lossesEl=document.getElementById('losses');
+  const isYT=typeof ytgame!=='undefined' && !!ytgame.IN_PLAYABLES_ENV;
+  let state={version:1,wins:0,draws:0,losses:0};
+  let saveLoaded=false, paused=false, mode='2p', cells=Array(9).fill(''), turn='X', over=false, thinking=false;
+  const wins=[[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+  function sdkCall(fn,...args){try{if(isYT && fn) return fn(...args)}catch(e){} return undefined}
+  async function loadSave(){
+    if(!isYT){saveLoaded=true;renderStats();return}
+    try{const raw=await ytgame.game.loadData();if(raw){const d=JSON.parse(raw);if(d&&d.version===1){state={...state,...d}}}}catch(e){}
+    saveLoaded=true;renderStats();
+  }
+  async function save(){
+    if(!saveLoaded||!isYT)return;
+    try{await ytgame.game.saveData(JSON.stringify(state))}catch(e){}
+  }
+  function renderStats(){winsEl.textContent=state.wins;drawsEl.textContent=state.draws;lossesEl.textContent=state.losses}
+  function setReady(){
+    sdkCall(ytgame?.game?.firstFrameReady);
+    requestAnimationFrame(()=>sdkCall(ytgame?.game?.gameReady));
+  }
+  function renderBoard(){
+    boardEl.innerHTML='';
+    cells.forEach((v,i)=>{
+      const b=document.createElement('button'); b.className='cell'; b.type='button'; b.dataset.i=i; b.setAttribute('role','gridcell');
+      b.setAttribute('aria-label',v?('Square '+(i+1)+': '+v):('Square '+(i+1)+': empty'));
+      b.disabled=!!v||over||thinking||paused;
+      if(v){const s=document.createElement('span');s.className='mark '+(v==='O'?'o':'');s.textContent=v;b.appendChild(s)}
+      b.addEventListener('click',()=>move(i)); boardEl.appendChild(b);
+    });
+  }
+  function modeName(){return mode==='2p'?'2 Players':'1 Player · '+mode[0].toUpperCase()+mode.slice(1)}
+  function startRound(){cells=Array(9).fill('');turn='X';over=false;thinking=false;resultEl.textContent='';statusEl.textContent="X's turn";modeLabel.textContent=modeName();renderBoard()}
+  function startMode(m){mode=m;home.classList.add('hidden');game.classList.remove('hidden');startRound()}
+  function check(c){for(const line of wins){const [a,b,d]=line;if(c[a]&&c[a]===c[b]&&c[a]===c[d])return {winner:c[a],line}}if(c.every(Boolean))return {winner:'draw',line:[]};return null}
+  function move(i){
+    if(paused||over||thinking||cells[i]||(mode!=='2p'&&turn==='O'))return;
+    cells[i]=turn; afterMove();
+  }
+  function afterMove(){
+    const r=check(cells);renderBoard();
+    if(r){finish(r);return}
+    turn=turn==='X'?'O':'X';statusEl.textContent=turn+"'s turn";
+    if(mode!=='2p'&&turn==='O'){thinking=true;renderBoard();setTimeout(()=>{if(!paused&&!over){const i=aiMove();cells[i]='O';thinking=false;afterMove()}},260)}
+  }
+  function finish(r){over=true;renderBoard();
+    if(r.winner==='draw'){resultEl.textContent='Draw';state.draws++;statusEl.textContent='Good game!'}
+    else {resultEl.textContent=r.winner+' wins';statusEl.textContent='Round complete';if(mode==='2p'){if(r.winner==='X')state.wins++;else state.losses++}else{if(r.winner==='X')state.wins++;else state.losses++}}
+    renderStats();save();
+  }
+  function available(){return cells.map((v,i)=>v?null:i).filter(i=>i!==null)}
+  function winningMove(p){for(const i of available()){cells[i]=p;const r=check(cells);cells[i]='';if(r&&r.winner===p)return i}return -1}
+  function aiMove(){
+    const av=available();if(!av.length)return -1;
+    if(mode==='easy')return av[Math.floor(Math.random()*av.length)];
+    const win=winningMove('O');if(win>=0)return win;
+    if(mode==='medium'){const block=winningMove('X');if(block>=0)return block;return av[Math.floor(Math.random()*av.length)]}
+    const block=winningMove('X');if(block>=0)return block;
+    if(cells[4]==='')return 4;
+    const corners=[0,2,6,8].filter(i=>!cells[i]);if(corners.length)return corners[Math.floor(Math.random()*corners.length)];
+    return av[0];
+  }
+  document.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>startMode(b.dataset.mode)));
+  document.getElementById('newRound').addEventListener('click',startRound);
+  document.getElementById('backBtn').addEventListener('click',()=>{game.classList.add('hidden');home.classList.remove('hidden');renderStats()});
+  document.getElementById('resumeBtn').addEventListener('click',()=>{paused=false;pauseOverlay.classList.add('hidden');renderBoard();statusEl.textContent=over?'Round complete':turn+"'s turn"});
+  if(isYT){
+    ytgame.system.onPause(()=>{paused=true;pauseOverlay.classList.remove('hidden');save();renderBoard()});
+    ytgame.system.onResume(()=>{paused=false;pauseOverlay.classList.add('hidden');renderBoard();if(!over)statusEl.textContent=turn+"'s turn"});
+    if(ytgame.system.onAudioEnabledChange)ytgame.system.onAudioEnabledChange(()=>{});
+  }
+  renderStats();renderBoard();loadSave().finally(setReady);
+})();
+</script>
+</body>
+</html>
