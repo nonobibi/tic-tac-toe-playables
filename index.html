@@ -1106,6 +1106,7 @@ soundOn=localStorage.getItem('ttt_sound_on')!=='0';
 
 updateSoundButton();
 
+/* Playgama Bridge initialization and Game Ready signal */
 async function initBridge(){
 
 if(!window.bridge||typeof window.bridge.initialize!=='function'){
@@ -1133,10 +1134,33 @@ pausedState=>setPaused(!!pausedState)
 
 }
 
+/* Load saved data before declaring the game ready */
 await loadStats();
+
+/* Wait until the first playable frame has rendered */
+await new Promise(resolve=>{
+requestAnimationFrame(()=>{
+requestAnimationFrame(resolve);
+});
+});
+
+/* Required Playgama readiness message */
+if(bridge.platform&&typeof bridge.platform.sendMessage==='function'){
+
+try{
+await bridge.platform.sendMessage('game_ready');
+console.log('Playgama Game Ready signal sent');
+}catch(error){
+console.error('Playgama Game Ready signal failed:',error);
+}
+
+}else{
+console.error('Playgama platform.sendMessage is unavailable');
+}
 
 }catch(e){
 
+console.error('Playgama Bridge initialization failed:',e);
 bridgeReady=false;
 await loadStats();
 
@@ -1154,3 +1178,4 @@ initBridge().finally(()=>{});
 
 </body>
 </html>
+
